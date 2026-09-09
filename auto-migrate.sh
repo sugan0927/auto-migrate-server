@@ -93,8 +93,22 @@ archive website.tar.gz /var/www
 # 1.2 MariaDB (includes routines/triggers/events, and a consistent
 # snapshot even while the DB is live).
 if command -v mysqldump &>/dev/null && systemctl is-active --quiet mariadb 2>/dev/null; then
-    mysqldump --all-databases --single-transaction --routines --triggers --events -u root > db.sql \
-        || log_warn "MariaDB dump failed — check root DB auth (see /root/.mysql_root_password if this server used ee.sh)."
+    MYSQL_DUMP_ARGS=(--all-databases --single-transaction --routines --triggers --events -u root)
+    if mysqldump "${MYSQL_DUMP_ARGS[@]}" > db.sql 2>/tmp/mysqldump-err.log; then
+        :
+    elif [[ -f /root/.mysql_root_password ]]; then
+        # unix_socket auth failed (common on ee.sh-provisioned servers, which
+        # set an explicit root password instead) — retry using the saved password.
+        log_warn "Passwordless root DB auth failed — retrying with /root/.mysql_root_password ..."
+        DB_PASS="$(cat /root/.mysql_root_password)"
+        if MYSQL_PWD="$DB_PASS" mysqldump "${MYSQL_DUMP_ARGS[@]}" > db.sql 2>/tmp/mysqldump-err.log; then
+            log_info "Database dump succeeded using saved root password."
+        else
+            log_warn "MariaDB dump failed even with /root/.mysql_root_password (see /tmp/mysqldump-err.log). Continuing without a DB backup."
+        fi
+    else
+        log_warn "MariaDB dump failed and no /root/.mysql_root_password found to retry with (see /tmp/mysqldump-err.log). Continuing without a DB backup."
+    fi
 else
     log_warn "MariaDB not running/installed — skipping database dump."
 fi
@@ -135,6 +149,11 @@ detect_php_fpm_version > php_version.txt 2>/dev/null || echo "" > php_version.tx
 ls -lh "$BACKUP_DIR"
 
 # ---------- 2. Transfer to new server ----------
+log_info "Installing rsync on $NEW_IP (fresh VPS images usually don't have it)..."
+sshpass -e ssh "${SSH_OPTS[@]}" "root@$NEW_IP" \
+    "apt-get update -qq && apt-get install -y -qq rsync" \
+    || log_error "Could not install rsync on $NEW_IP. Install it manually there (apt-get install rsync) and re-run."
+
 log_info "Transferring backups to $NEW_IP ..."
 sshpass -e ssh "${SSH_OPTS[@]}" "root@$NEW_IP" "mkdir -p /root/migration-backup"
 rsync -avz --partial -e "sshpass -e ssh ${SSH_OPTS[*]}" \

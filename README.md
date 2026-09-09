@@ -1,39 +1,35 @@
-# auto-migrate-server
-
-**Repo:** https://github.com/sugan0927/auto-migrate-server
+# auto-migrate
 
 One-command migration for a LEMP + Stalwart mail server from an old VPS to a
 new one: websites, MariaDB, mail data, nginx/PHP/firewall configs, and SSL
-certificates — plus a matching restore script that runs automatically on the
-new server.
+certificates.
 
 ## What it does
 
-1. **`auto-migrate.sh`** (run on the **old** server) backs up:
+1. `auto-migrate.sh` (run on the **old** server) backs up:
    - `/var/www` (websites)
-   - a full MariaDB dump (`--single-transaction --routines --triggers --events`)
+   - full MariaDB dump (`--single-transaction --routines --triggers --events`)
    - Stalwart mail data + config
    - nginx, PHP, ufw, fail2ban configs
    - Let's Encrypt certificates
-   - hostname/hosts, the `ee` CLI (if present), and the MariaDB root
-     password file (needed to log back in after DB restore)
+   - hostname/hosts, the `ee` CLI (if present), and the MariaDB root password file
 2. Transfers everything to the new server over SSH (password-based, using `sshpass`).
-3. Automatically runs **`auto-migrate-restore.sh`** on the new server, which
-   detects and installs the matching PHP version, restores everything, and
-   re-enables all services.
+3. Automatically runs `auto-migrate-restore.sh` on the new server, which
+   installs matching packages (detecting the right PHP version instead of
+   assuming one), restores everything, and re-enables services.
 
 ## Requirements
 
-- Both servers: Debian/Ubuntu, run as **root**.
+- Both servers: Debian/Ubuntu with `bash`, run as **root**.
 - Old server: outbound SSH access to the new server.
-- New server: a **fresh** VPS is safest — this overwrites `/etc/nginx`,
+- New server: a fresh VPS is safest — this will overwrite `/etc/nginx`,
   `/etc/php`, `/var/www`, and MariaDB's data with the old server's data.
 
 ## Usage
 
 ```bash
-git clone https://github.com/sugan0927/auto-migrate-server.git
-cd auto-migrate-server
+git clone https://github.com/<you>/auto-migrate.git
+cd auto-migrate
 chmod +x auto-migrate.sh auto-migrate-restore.sh
 sudo ./auto-migrate.sh
 ```
@@ -52,27 +48,24 @@ the restore script and shared library right next to itself.
 - Test the site and mail on the new IP before fully cutting over DNS.
 - Once DNS has propagated, run `certbot renew` on the new server if needed.
 - If `mysql -u root` (no password) stops working after restore, use
-  `mysql -u root -p` with the password saved at
-  `/root/.mysql_root_password` — restoring the database can replace the
-  new server's fresh MariaDB auth with the old server's.
+  `mysql -u root -p` with the password now saved at
+  `/root/.mysql_root_password` — restoring the database can replace the new
+  server's fresh MariaDB auth with the old server's.
 
 ## Self-updating
 
-Every run checks `VERSION` in this repo's `main` branch and updates itself
-automatically if a newer one is published (silently skipped if offline).
-`lib/common.sh` already points at:
+Both scripts check `VERSION` against the same file in this repo's `main`
+branch on every run and update themselves automatically if you're behind
+(silently skipped if offline). To enable this after you fork/publish this
+repo, set `REPO_RAW_BASE` at the top of `lib/common.sh` to your repo's raw
+URL, e.g.:
 
+```bash
+REPO_RAW_BASE="https://raw.githubusercontent.com/<you>/auto-migrate/main"
 ```
-https://raw.githubusercontent.com/sugan0927/auto-migrate-server/main
-```
 
-To ship a fix to every server that has ever run this script: commit the
-change, **bump the `VERSION` file**, and push to `main`. The next time
-`auto-migrate.sh` or `auto-migrate-restore.sh` runs anywhere, it pulls the
-update before doing anything else.
-
-If you ever fork this to a different account/repo, update `REPO_RAW_BASE`
-at the top of `lib/common.sh` to match.
+Bump the `VERSION` file and push whenever you change something — every
+server that has ever run this script will pick up the fix on its next run.
 
 ## Honest limitations
 
@@ -84,7 +77,7 @@ will keep changing. What this project does instead:
   keeps working after PHP 8.3 is retired.
 - Fails fast with a clear message on missing SSH access, low disk space, or
   a missing restore script, instead of silently limping on.
-- Self-updates from this repo so a fix only has to be made once.
+- Self-updates from GitHub so a fix only has to be made once.
 
-Re-test occasionally against current Debian/Ubuntu releases and keep
-`VERSION` bumped when you do.
+Re-test occasionally against current Debian/Ubuntu releases and keep the
+repo's `VERSION` bumped when you do.
